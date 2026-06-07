@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Investing Tracker</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#080c18;color:#e2e8f0;padding-bottom:70px;}
+  .mono{font-family:'SF Mono',Menlo,Consolas,monospace;}
+  button{font-family:inherit;cursor:pointer;}
+  .card{background:#0d1424;border:1px solid #1e293b;border-radius:10px;}
+  .lbl{font-size:8px;letter-spacing:2px;text-transform:uppercase;font-family:'SF Mono',Menlo,monospace;}
+  .hide{display:none !important;}
+  ::-webkit-scrollbar{width:0;}
+  .spin{animation:sp 1s linear infinite;display:inline-block;}
+  @keyframes sp{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+  input{width:100%;padding:9px 11px;background:#0f172a;border:1px solid #1e293b;border-radius:6px;color:#e2e8f0;font-size:14px;}
+  .navbtn{flex:1;padding:9px 0 7px;border:none;background:none;color:#475569;font-size:9px;letter-spacing:0.3px;text-transform:uppercase;border-top:2px solid transparent;}
+  .navbtn.on{color:#818cf8;border-top:2px solid #818cf8;}
+  button:disabled{opacity:.6;cursor:not-allowed;}
+</style>
+</head>
+<body>
+
+<!-- ══════════ SETUP ══════════ -->
+<div id="setup" style="display:none;min-height:100vh;padding:40px 20px;text-align:center;">
+  <div class="lbl" style="color:#818cf8;letter-spacing:4px;margin-bottom:12px;">INVESTING TRACKER · SETUP</div>
+  <h1 style="font-size:24px;font-weight:300;color:#f8fafc;margin:0 0 8px;">One-time setup</h1>
+  <p style="color:#64748b;font-size:13px;max-width:420px;margin:0 auto 24px;line-height:1.6;">
+    Uses a free Twelve Data API key to pull live prices and the VIX index. Takes 60 seconds to get one.
+  </p>
+  <div class="card" style="max-width:440px;margin:0 auto;padding:20px;text-align:left;">
+    <div style="font-size:12px;color:#94a3b8;line-height:1.8;margin-bottom:16px;">
+      <b style="color:#818cf8;">Step 1.</b> Go to <a href="https://twelvedata.com/pricing" target="_blank" style="color:#60a5fa;">twelvedata.com/pricing</a><br>
+      <b style="color:#818cf8;">Step 2.</b> Pick the <b>Basic (Free)</b> plan — no card needed<br>
+      <b style="color:#818cf8;">Step 3.</b> Sign up; copy your API key<br>
+      <b style="color:#818cf8;">Step 4.</b> Paste it below
+    </div>
+    <input id="keyInput" placeholder="Paste your Twelve Data API key" style="margin-bottom:10px;">
+    <button onclick="saveKey()" style="width:100%;padding:12px;background:#818cf8;border:none;border-radius:8px;color:#fff;font-size:14px;font-weight:600;">Save &amp; Start</button>
+    <div id="keyErr" style="color:#f87171;font-size:11px;margin-top:8px;text-align:center;"></div>
+  </div>
+  <p style="color:#334155;font-size:10px;margin-top:16px;">Stored only in this browser. The app auto-paces requests to stay within free limits.</p>
+</div>
+
+<!-- ══════════ APP ══════════ -->
+<div id="app" style="display:none;">
+  <div style="background:linear-gradient(160deg,#0f172a,#0a1628);border-bottom:1px solid #1e293b;padding:14px 16px 10px;">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+      <div>
+        <div class="lbl" style="color:#818cf8;">INVESTING TRACKER</div>
+        <div class="mono" id="hTotal" style="font-size:26px;font-weight:300;color:#f8fafc;margin-top:1px;">$0</div>
+        <div style="display:flex;gap:8px;margin-top:2px;align-items:center;">
+          <span class="mono" id="hGain" style="font-size:11px;"></span>
+          <span id="hSpy" style="font-size:10px;color:#64748b;"></span>
+        </div>
+      </div>
+      <div style="text-align:right;">
+        <button id="refreshBtn" onclick="refreshPrices()" style="padding:6px 12px;background:#818cf822;border:1px solid #818cf844;border-radius:7px;color:#818cf8;font-size:10px;margin-bottom:4px;white-space:nowrap;">⟳ Refresh Prices</button>
+        <div id="hUpdated" style="font-size:8px;color:#334155;">Prices: never</div>
+        <div id="hCredits" style="font-size:8px;color:#475569;margin-top:1px;">API: 0/8 this min</div>
+        <div id="hNextDca" style="font-size:9px;color:#60a5fa;margin-top:1px;"></div>
+      </div>
+    </div>
+    <div id="hPriceErr" style="margin-top:8px;padding:6px 10px;background:#2a0f0f;border:1px solid #4a2020;border-radius:6px;color:#f87171;font-size:10px;display:none;"></div>
+  </div>
+
+  <div style="padding:12px 14px;max-width:720px;margin:0 auto;">
+    <div id="vHome"></div>
+    <div id="vPortfolio" class="hide"></div>
+    <div id="vDca" class="hide"></div>
+    <div id="vMarket" class="hide"></div>
+    <div id="vLog" class="hide"></div>
+  </div>
+
+  <div style="position:fixed;bottom:0;left:0;right:0;background:#0d1424;border-top:1px solid #1e293b;display:flex;z-index:100;max-width:720px;margin:0 auto;">
+    <button class="navbtn on" data-v="Home" onclick="nav('Home')">Home</button>
+    <button class="navbtn" data-v="Portfolio" onclick="nav('Portfolio')">Portfolio</button>
+    <button class="navbtn" data-v="Dca" onclick="nav('Dca')">DCA</button>
+    <button class="navbtn" data-v="Market" onclick="nav('Market')">Market</button>
+    <button class="navbtn" data-v="Log" onclick="nav('Log')">Log</button>
+  </div>
+</div>
+
+<div id="modalMount"></div>
+
+<script>
+//═══════════════ DATA ═══════════════
+const MONTHS=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const DEF_BROKER=[
+  {id:"vti",ticker:"VTI",shares:64.345188,price:371.96,avgCost:213.50,target:35,color:"#818cf8"},
+  {id:"schd",ticker:"SCHD",shares:291.419578,price:32.68,avgCost:22.00,target:15,color:"#34d399"},
+  {id:"amzn",ticker:"AMZN",shares:17.50815,price:272.00,avgCost:165.68,target:3,color:"#38bdf8"},
+  {id:"shop",ticker:"SHOP",shares:20,price:115.42,avgCost:32.51,target:1.5,color:"#6ee7b7"},
+  {id:"usrt",ticker:"USRT",shares:41.51959,price:65.42,avgCost:50.00,target:2,color:"#86efac"},
+  {id:"vug",ticker:"VUG",shares:28.250905,price:89.39,avgCost:72.00,target:8,color:"#60a5fa"},
+  {id:"et",ticker:"ET",shares:95.62214,price:19.45,avgCost:14.00,target:3.5,color:"#fbbf24"},
+  {id:"ritm",ticker:"RITM",shares:160.474744,price:9.28,avgCost:8.50,target:1.5,color:"#c4b5fd"},
+  {id:"qqqm",ticker:"QQQM",shares:4.001467,price:303.17,avgCost:200.00,target:6,color:"#f472b6"},
+  {id:"epd",ticker:"EPD",shares:34.074085,price:37.50,avgCost:28.00,target:2.5,color:"#f59e0b"},
+  {id:"iau",ticker:"IAU",shares:10,price:85.34,avgCost:40.00,target:2,color:"#fde68a"},
+  {id:"vwo",ticker:"VWO",shares:8.978302,price:60.39,avgCost:45.00,target:5,color:"#4ade80"},
+  {id:"vea",ticker:"VEA",shares:7.52329,price:72.00,avgCost:55.00,target:6,color:"#a78bfa"},
+  {id:"vale",ticker:"VALE",shares:44.603952,price:16.51,avgCost:12.00,target:1,color:"#fdba74"},
+  {id:"dell",ticker:"DELL",shares:1.036823,price:426.47,avgCost:100.00,target:0.5,color:"#cbd5e1"},
+  {id:"avuv",ticker:"AVUV",shares:0,price:85.00,avgCost:0,target:6,color:"#fb923c"},
+  {id:"bnd",ticker:"BND",shares:0,price:73.50,avgCost:0,target:3,color:"#94a3b8"},
+];
+const DEF_ROTH=[
+  {id:"rvug",ticker:"VUG",shares:0,price:89.39,avgCost:0,target:40,color:"#60a5fa"},
+  {id:"rqqqm",ticker:"QQQM",shares:0,price:303.17,avgCost:0,target:35,color:"#f472b6"},
+  {id:"ravuv",ticker:"AVUV",shares:0,price:85.00,avgCost:0,target:25,color:"#fb923c"},
+];
+const PHASES={
+  A:{label:"Phase A",sub:"Emergency Build",color:"#ef4444",note:"Fill missing positions. Zero VTI/SCHD in brokerage. VUG/QQQM Roth only.",
+     broker:[["AVUV",45,"#fb923c"],["VEA",25,"#a78bfa"],["VWO",15,"#4ade80"],["BND",10,"#94a3b8"],["IAU",5,"#fde68a"]],
+     roth:[["VUG",40,"#60a5fa"],["QQQM",35,"#f472b6"],["AVUV",25,"#fb923c"]]},
+  B:{label:"Phase B",sub:"Continue Building",color:"#f59e0b",note:"Positions gaining traction. Modest SCHD re-entry when AVUV > 3%.",
+     broker:[["AVUV",30,"#fb923c"],["VEA",25,"#a78bfa"],["VWO",20,"#4ade80"],["BND",15,"#94a3b8"],["SCHD",10,"#34d399"]],
+     roth:[["VUG",35,"#60a5fa"],["QQQM",30,"#f472b6"],["AVUV",25,"#fb923c"],["VTI",10,"#818cf8"]]},
+  C:{label:"Phase C",sub:"Steady State",color:"#22c55e",note:"All positions near target. Full SCHD + VTI resume.",
+     broker:[["SCHD",28,"#34d399"],["VEA",20,"#a78bfa"],["VWO",17,"#4ade80"],["BND",13,"#94a3b8"],["VTI",12,"#818cf8"],["IAU",10,"#fde68a"]],
+     roth:[["VTI",35,"#818cf8"],["VUG",25,"#60a5fa"],["QQQM",20,"#f472b6"],["AVUV",20,"#fb923c"]]},
+};
+
+//═══════════════ STATE ═══════════════
+let S={view:"Home",broker:JSON.parse(JSON.stringify(DEF_BROKER)),roth:JSON.parse(JSON.stringify(DEF_ROTH)),phase:"A",log:[],market:null,lastPrice:null,apiKey:null};
+
+//═══════════════ THROTTLE MANAGER (Basic 8 = 8 credits/min) ═══════════════
+const CREDIT_LIMIT=8, WINDOW_MS=60000;
+let creditLog=[];
+function creditsUsed(now){ now=now||Date.now(); creditLog=creditLog.filter(c=>c.time>now-WINDOW_MS); return creditLog.reduce((s,c)=>s+c.credits,0); }
+function recordCredits(n,now){ creditLog.push({time:now||Date.now(),credits:n}); }
+function waitTimeFor(n,now){
+  now=now||Date.now();
+  const used=creditsUsed(now);
+  if(used+n<=CREDIT_LIMIT) return 0;
+  const sorted=[...creditLog].sort((a,b)=>a.time-b.time);
+  let freed=0; const need=(used+n)-CREDIT_LIMIT;
+  for(const c of sorted){ freed+=c.credits; if(freed>=need) return Math.max(0,(c.time+WINDOW_MS)-now); }
+  return WINDOW_MS;
+}
+function chunk(arr,size){ const out=[]; for(let i=0;i<arr.length;i+=size) out.push(arr.slice(i,i+size)); return out; }
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+
+//═══════════════ PERSISTENCE ═══════════════
+function save(){
+  localStorage.setItem("it_broker",JSON.stringify(S.broker));
+  localStorage.setItem("it_roth",JSON.stringify(S.roth));
+  localStorage.setItem("it_phase",S.phase);
+  localStorage.setItem("it_log",JSON.stringify(S.log));
+  localStorage.setItem("it_market",JSON.stringify(S.market));
+  localStorage.setItem("it_lastprice",S.lastPrice||"");
+}
+function load(){
+  try{
+    const b=localStorage.getItem("it_broker"); if(b)S.broker=JSON.parse(b);
+    const r=localStorage.getItem("it_roth"); if(r)S.roth=JSON.parse(r);
+    const p=localStorage.getItem("it_phase"); if(p)S.phase=p;
+    const l=localStorage.getItem("it_log"); if(l)S.log=JSON.parse(l);
+    const m=localStorage.getItem("it_market"); if(m&&m!=="null")S.market=JSON.parse(m);
+    const lp=localStorage.getItem("it_lastprice"); if(lp)S.lastPrice=lp;
+  }catch(e){}
+  S.apiKey=localStorage.getItem("it_apikey");
+}
+
+//═══════════════ HELPERS ═══════════════
+const fn=(n,d=2)=>new Intl.NumberFormat('en-US',{minimumFractionDigits:d,maximumFractionDigits:d}).format(n||0);
+const fd=n=>'$'+fn(Math.abs(n||0),0);
+const fp=n=>(n>=0?'+':'')+fn(n,1)+'%';
+function nextDCA(){
+  const now=new Date(),m=now.getMonth(),y=now.getFullYear(),out=[];
+  for(let i=0;i<3;i++){const cm=(m+i)%12,cy=y+Math.floor((m+i)/12);[8,23].forEach(d=>{const dt=new Date(cy,cm,d);if(dt>now)out.push(dt);});}
+  out.sort((a,b)=>a-b);return out.slice(0,2);
+}
+const daysTill=d=>Math.ceil((d-new Date())/864e5);
+function timeAgo(iso){if(!iso)return"never";const s=(Date.now()-new Date(iso))/1000;if(s<60)return"just now";if(s<3600)return Math.floor(s/60)+"m ago";if(s<86400)return Math.floor(s/3600)+"h ago";return Math.floor(s/86400)+"d ago";}
+function totals(){
+  const bVal=S.broker.reduce((s,h)=>s+h.shares*h.price,0);
+  const rVal=S.roth.reduce((s,h)=>s+h.shares*h.price,0);
+  const cost=S.broker.reduce((s,h)=>s+h.shares*h.avgCost,0)+S.roth.reduce((s,h)=>s+h.shares*h.avgCost,0);
+  const total=bVal+rVal;
+  return {bVal,rVal,total,cost,gain:total-cost,gainPct:cost>0?((total-cost)/cost)*100:0};
+}
+// Apply a Twelve Data quote response to holdings; returns # of prices applied
+function applyPrices(data){
+  let hits=0;
+  const ap=h=>{const q=data[h.ticker];if(q&&q.close){const p=parseFloat(q.close);if(p>0){hits++;return {...h,price:p};}}return h;};
+  S.broker=S.broker.map(ap);
+  S.roth=S.roth.map(ap);
+  return hits;
+}
+
+//═══════════════ API KEY ═══════════════
+function saveKey(){
+  const k=document.getElementById("keyInput").value.trim();
+  if(!k){document.getElementById("keyErr").textContent="Please paste your API key.";return;}
+  localStorage.setItem("it_apikey",k); S.apiKey=k;
+  document.getElementById("setup").style.display="none";
+  document.getElementById("app").style.display="block";
+  render(); refreshPrices();
+}
+
+//═══════════════ MARKET DATA ═══════════════
+async function tdQuote(symbols){
+  const url=`https://api.twelvedata.com/quote?symbol=${symbols.join(",")}&apikey=${S.apiKey}`;
+  const res=await fetch(url);
+  if(!res.ok) throw new Error("HTTP "+res.status);
+  const data=await res.json();
+  if(data.code&&data.code>=400) throw new Error(data.message||("API "+data.code));
+  if(symbols.length===1) return {[symbols[0]]:data};
+  return data;
+}
+
+function setRefreshBtn(txt,disabled){
+  const b=document.getElementById("refreshBtn");
+  if(!b)return;
+  b.innerHTML=txt;
+  b.disabled=!!disabled;
+}
+function showPriceErr(msg){ const el=document.getElementById("hPriceErr"); if(el){el.textContent=msg;el.style.display="block";} }
+function hidePriceErr(){ const el=document.getElementById("hPriceErr"); if(el)el.style.display="none"; }
+function updateCreditMeter(){ const el=document.getElementById("hCredits"); if(el){const u=creditsUsed();el.textContent=`API: ${u}/8 this min`;el.style.color=u>=8?"#fb923c":"#475569";} }
+
+let busy=false;
+// Wait with a live countdown shown on a button
+async function throttledWait(credits,setBtn){
+  let wait=waitTimeFor(credits);
+  while(wait>0){
+    const secs=Math.ceil(wait/1000);
+    setBtn(`<span class="spin">⟳</span> Rate limit · ${secs}s`,true);
+    updateCreditMeter();
+    await sleep(1000);
+    wait=waitTimeFor(credits);
+  }
+}
+
+async function refreshPrices(){
+  if(busy||!S.apiKey)return;
+  busy=true; hidePriceErr();
+  try{
+    const tickers=[...new Set([...S.broker,...S.roth].filter(h=>h.shares>0).map(h=>h.ticker))];
+    if(tickers.length===0){busy=false;return;}
+    const batches=chunk(tickers,CREDIT_LIMIT);
+    let done=0;
+    for(const b of batches){
+      await throttledWait(b.length,setRefreshBtn);
+      setRefreshBtn(`<span class="spin">⟳</span> Updating ${done}/${tickers.length}...`,true);
+      const data=await tdQuote(b);
+      recordCredits(b.length);
+      applyPrices(data);
+      done+=b.length;
+      updateCreditMeter();
+    }
+    S.lastPrice=new Date().toISOString();
+    save(); render();
+  }catch(e){
+    showPriceErr("Price update failed: "+e.message);
+  }
+  busy=false;
+  setRefreshBtn("⟳ Refresh Prices",false);
+  updateCreditMeter();
+}
+
+function recEngine(vix,spy){
+  if(vix>=35||spy<=-5)  return "STRONG BUY SIGNAL";
+  if(vix>=25||spy<=-2.5)return "STRONG BUY SIGNAL";
+  if(vix>=20||spy<=-1.5)return "OPPORTUNISTIC BUY";
+  return "INVEST ON SCHEDULE";
+}
+function vixLabel(v){return v<15?"Low Fear":v<20?"Normal":v<28?"Elevated Fear":v<38?"High Fear":"Extreme Fear";}
+
+let analyzing=false;
+async function analyzeMarket(){
+  if(busy||analyzing||!S.apiKey)return;
+  analyzing=true; busy=true; renderMarket();
+  try{
+    // VIX + SPY = 2 credits; auto-wait if needed
+    const mb=document.getElementById("mktBtn");
+    const setMktBtn=(t,d)=>{if(mb){mb.innerHTML=t;mb.disabled=!!d;}};
+    await throttledWait(2,setMktBtn);
+    setMktBtn('<span class="spin">⟳</span> Analyzing...',true);
+    const data=await tdQuote(["VIX","SPY"]);
+    recordCredits(2);
+    const vixQ=data["VIX"], spyQ=data["SPY"];
+    if(!vixQ||!vixQ.close) throw new Error("VIX unavailable on this plan");
+    const vix=parseFloat(vixQ.close);
+    const spyToday=spyQ&&spyQ.percent_change?parseFloat(spyQ.percent_change):0;
+    S.market={
+      vix:vix.toFixed(1), vix_label:vixLabel(vix),
+      sp500_today:(spyToday>=0?"+":"")+spyToday.toFixed(2)+"%",
+      trend:spyToday>0.3?"Bullish":spyToday<-0.3?"Bearish":"Neutral",
+      recommendation:recEngine(vix,spyToday),
+      date:new Date().toISOString().slice(0,10),
+    };
+    save();
+  }catch(e){
+    S.market={error:e.message};
+  }
+  analyzing=false; busy=false;
+  updateCreditMeter(); renderMarket();
+}
+
+//═══════════════ ACTIONS ═══════════════
+function nav(v){S.view=v;document.querySelectorAll('.navbtn').forEach(b=>b.classList.toggle('on',b.dataset.v===v));render();}
+function setPhase(p){S.phase=p;save();render();}
+function delLog(id){S.log=S.log.filter(e=>e.id!==id);save();render();}
+function openEdit(id){
+  const h=[...S.broker,...S.roth].find(x=>x.id===id);if(!h)return;
+  document.getElementById("modalMount").innerHTML=`
+    <div onclick="closeModal(event)" style="position:fixed;inset:0;background:rgba(0,0,0,.7);display:flex;align-items:flex-end;z-index:200;">
+      <div onclick="event.stopPropagation()" style="background:#0d1424;border-top:1px solid #1e293b;border-radius:16px 16px 0 0;padding:20px;width:100%;max-width:720px;margin:0 auto;">
+        <div class="lbl" style="color:#818cf8;">EDIT POSITION</div>
+        <div class="mono" style="font-size:20px;font-weight:bold;color:#f8fafc;margin:3px 0 4px;">${h.ticker}</div>
+        <div style="font-size:10px;color:#64748b;margin-bottom:12px;">You manage shares & avg cost. Price auto-updates with Refresh.</div>
+        <div style="font-size:9px;color:#64748b;margin-bottom:3px;">Shares</div>
+        <input id="eShares" type="number" step="any" value="${h.shares}" style="margin-bottom:9px;">
+        <div style="font-size:9px;color:#64748b;margin-bottom:3px;">Current Price ($) — auto-updates</div>
+        <input id="ePrice" type="number" step="any" value="${h.price}" style="margin-bottom:9px;">
+        <div style="font-size:9px;color:#64748b;margin-bottom:3px;">Avg Cost ($)</div>
+        <input id="eAvg" type="number" step="any" value="${h.avgCost}" style="margin-bottom:14px;">
+        <button onclick="saveEdit('${id}')" style="width:100%;padding:11px;background:#818cf8;border:none;border-radius:8px;color:#fff;font-size:13px;font-weight:600;">Save</button>
+      </div>
+    </div>`;
+}
+function saveEdit(id){
+  const sh=parseFloat(document.getElementById("eShares").value)||0;
+  const pr=parseFloat(document.getElementById("ePrice").value)||0;
+  const av=parseFloat(document.getElementById("eAvg").value)||0;
+  const upd=h=>h.id===id?{...h,shares:sh,price:pr,avgCost:av}:h;
+  S.broker=S.broker.map(upd);S.roth=S.roth.map(upd);
+  save();closeModal();render();
+}
+function openLog(){
+  document.getElementById("modalMount").innerHTML=`
+    <div onclick="closeModal(event)" style="position:fixed;inset:0;background:rgba(0,0,0,.7);display:flex;align-items:flex-end;z-index:200;">
+      <div onclick="event.stopPropagation()" style="background:#0d1424;border-top:1px solid #1e293b;border-radius:16px 16px 0 0;padding:20px;width:100%;max-width:720px;margin:0 auto;">
+        <div class="lbl" style="color:#818cf8;margin-bottom:12px;">LOG INVESTMENT</div>
+        <div style="font-size:9px;color:#64748b;margin-bottom:3px;">Date</div>
+        <input id="lDate" type="date" style="margin-bottom:9px;">
+        <div style="font-size:9px;color:#64748b;margin-bottom:3px;">Amount ($)</div>
+        <input id="lAmt" type="number" placeholder="950" style="margin-bottom:9px;">
+        <div style="font-size:9px;color:#64748b;margin-bottom:3px;">Notes</div>
+        <input id="lNotes" placeholder="8th scheduled · Phase A" style="margin-bottom:9px;">
+        <div style="font-size:9px;color:#64748b;margin-bottom:4px;">Account</div>
+        <div style="display:flex;gap:7px;margin-bottom:14px;">
+          <button id="acB" onclick="pickAcc('Brokerage')" style="flex:1;padding:8px;border-radius:6px;border:1px solid #818cf8;background:#818cf822;color:#818cf8;font-size:12px;">Brokerage</button>
+          <button id="acR" onclick="pickAcc('Roth IRA')" style="flex:1;padding:8px;border-radius:6px;border:1px solid #1e293b;background:none;color:#64748b;font-size:12px;">Roth IRA</button>
+        </div>
+        <button onclick="saveLog()" style="width:100%;padding:11px;background:#818cf8;border:none;border-radius:8px;color:#fff;font-size:13px;font-weight:600;">Save Entry</button>
+      </div>
+    </div>`;
+  window._acc="Brokerage";
+}
+function pickAcc(a){window._acc=a;
+  document.getElementById("acB").style.cssText=`flex:1;padding:8px;border-radius:6px;border:1px solid ${a==='Brokerage'?'#818cf8':'#1e293b'};background:${a==='Brokerage'?'#818cf822':'none'};color:${a==='Brokerage'?'#818cf8':'#64748b'};font-size:12px;`;
+  document.getElementById("acR").style.cssText=`flex:1;padding:8px;border-radius:6px;border:1px solid ${a==='Roth IRA'?'#818cf8':'#1e293b'};background:${a==='Roth IRA'?'#818cf822':'none'};color:${a==='Roth IRA'?'#818cf8':'#64748b'};font-size:12px;`;
+}
+function saveLog(){
+  const d=document.getElementById("lDate").value,a=parseFloat(document.getElementById("lAmt").value),n=document.getElementById("lNotes").value;
+  if(!d||!a)return;
+  S.log.unshift({id:Date.now(),date:d,amount:a,notes:n,account:window._acc||"Brokerage"});
+  save();closeModal();render();
+}
+function closeModal(e){if(e&&e.target!==e.currentTarget)return;document.getElementById("modalMount").innerHTML="";}
+
+//═══════════════ RENDER ═══════════════
+const REC={
+  "INVEST ON SCHEDULE":{bg:"#0f2a1f",t:"#4ade80",b:"#1a4a2e",i:"✅",act:"Stick to your 8th & 23rd schedule.",det:"Market is normal. Consistent DCA is your edge."},
+  "OPPORTUNISTIC BUY":{bg:"#2a2a0a",t:"#fbbf24",b:"#4a4a1a",i:"🟡",act:"Consider 10–25% extra on next scheduled date.",det:"Mild weakness detected — slightly larger purchase historically rewarded."},
+  "STRONG BUY SIGNAL":{bg:"#0f1f35",t:"#60a5fa",b:"#1e3a5f",i:"🔵",act:"Consider deploying $200–500 extra outside schedule.",det:"Significant fear signal. Historically one of the best times to DCA in. Do not panic sell."},
+};
+const VIXC=v=>{v=parseFloat(v);return v<15?"#4ade80":v<20?"#60a5fa":v<28?"#fbbf24":v<38?"#fb923c":"#ef4444";};
+function statusOf(h,total){
+  const pct=total>0?(h.shares*h.price/total)*100:0,diff=h.target-pct;
+  if(h.shares===0&&h.target>0)return{l:"MISSING",t:"#c084fc",b:"#3a1a5a"};
+  if(diff>1.5)return{l:"BUILDING",t:"#60a5fa",b:"#1e3a5f"};
+  if(diff<-1.5)return{l:"OVERWEIGHT",t:"#fb923c",b:"#4a3020"};
+  return{l:"ON TARGET",t:"#4ade80",b:"#1a4a2e"};
+}
+function render(){
+  const T=totals();
+  document.getElementById("hTotal").textContent=fd(T.total);
+  const hg=document.getElementById("hGain");
+  hg.textContent=(T.gain>=0?"+":"-")+fd(Math.abs(T.gain))+" ("+fp(T.gainPct)+")";
+  hg.style.color=T.gain>=0?"#4ade80":"#f87171";
+  document.getElementById("hSpy").textContent=S.market&&!S.market.error?("S&P "+S.market.sp500_today):"";
+  document.getElementById("hUpdated").textContent="Prices: "+timeAgo(S.lastPrice);
+  updateCreditMeter();
+  const nd=nextDCA();
+  document.getElementById("hNextDca").textContent=nd[0]?("Next DCA "+MONTHS[nd[0].getMonth()]+" "+nd[0].getDate()):"";
+  ["Home","Portfolio","Dca","Market","Log"].forEach(v=>document.getElementById("v"+v).classList.toggle("hide",S.view!==v));
+  if(S.view==="Home")renderHome(T);
+  if(S.view==="Portfolio")renderPortfolio(T);
+  if(S.view==="Dca")renderDca();
+  if(S.view==="Market")renderMarket();
+  if(S.view==="Log")renderLog();
+}
+function renderHome(T){
+  const nd=nextDCA(),ph=PHASES[S.phase];
+  let m="";
+  if(S.market&&!S.market.error){
+    const rc=REC[S.market.recommendation]||{bg:"#0f172a",t:"#94a3b8",b:"#1e293b",i:""};
+    m=`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">${[["VIX",S.market.vix,VIXC(S.market.vix)],["Today",S.market.sp500_today,S.market.sp500_today.startsWith("+")?"#4ade80":"#f87171"],["Trend",S.market.trend,S.market.trend==="Bullish"?"#4ade80":S.market.trend==="Bearish"?"#f87171":"#94a3b8"]].map(([l,v,c])=>`<div style="padding:5px 9px;background:#0f172a;border-radius:6px;text-align:center;min-width:52px;"><div style="font-size:8px;color:#64748b;">${l}</div><div class="mono" style="font-size:12px;color:${c};">${v}</div></div>`).join("")}</div><div style="padding:8px 10px;background:${rc.bg};border:1px solid ${rc.b};border-radius:6px;"><div class="mono" style="font-size:10px;color:${rc.t};font-weight:700;">${rc.i} ${S.market.recommendation}</div><div style="font-size:10px;color:#94a3b8;margin-top:2px;">${rc.act}</div></div>`;
+  }else{
+    m=`<div style="text-align:center;padding:12px;"><div style="font-size:11px;color:#64748b;margin-bottom:8px;">No market data yet</div><button onclick="nav('Market')" style="padding:7px 14px;background:#818cf8;color:#fff;border:none;border-radius:6px;font-size:11px;">Analyze Market</button></div>`;
+  }
+  document.getElementById("vHome").innerHTML=`
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">
+      <div class="card" style="padding:12px;border-color:#4ade8022;"><div class="lbl" style="color:#4ade80;">Brokerage</div><div class="mono" style="font-size:20px;color:#f8fafc;margin-top:2px;">${fd(T.bVal)}</div><div style="font-size:9px;color:#64748b;">${S.broker.filter(h=>h.shares>0).length} positions</div></div>
+      <div class="card" style="padding:12px;border-color:#818cf822;"><div class="lbl" style="color:#818cf8;">Roth IRA</div><div class="mono" style="font-size:20px;color:#f8fafc;margin-top:2px;">${fd(T.rVal)}</div><div style="font-size:9px;color:#64748b;">${T.rVal===0?"Starting June 2026":"Active"}</div></div>
+    </div>
+    <div class="card" style="padding:12px;margin-bottom:10px;"><div class="lbl" style="color:#60a5fa;margin-bottom:8px;">UPCOMING DCA DATES</div><div style="display:flex;gap:8px;">${nd.map((d,i)=>`<div style="flex:1;padding:10px;background:#0f172a;border-radius:8px;border:1px solid ${i===0?'#60a5fa33':'#1e293b'};text-align:center;"><div class="mono" style="font-size:22px;color:${i===0?'#60a5fa':'#475569'};">${d.getDate()}</div><div style="font-size:9px;color:#64748b;">${MONTHS[d.getMonth()]} ${d.getFullYear()}</div><div style="font-size:9px;color:${i===0?'#60a5fa':'#334155'};margin-top:1px;">in ${daysTill(d)} days</div><div class="mono" style="font-size:11px;color:#4ade80;margin-top:4px;">$950</div></div>`).join("")}</div></div>
+    <div class="card" style="padding:12px;margin-bottom:10px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><div class="lbl" style="color:#f472b6;">MARKET SNAPSHOT</div><button onclick="nav('Market')" style="font-size:10px;color:#818cf8;background:none;border:none;">Full Analysis →</button></div>${m}</div>
+    <div class="card" style="padding:12px;margin-bottom:10px;border-color:${ph.color}33;"><div style="display:flex;justify-content:space-between;align-items:center;"><div><div class="lbl" style="color:${ph.color};">${ph.label} · ${ph.sub}</div><div style="font-size:11px;color:#94a3b8;margin-top:3px;">${ph.note}</div></div><div style="display:flex;gap:4px;">${["A","B","C"].map(p=>`<button onclick="setPhase('${p}')" style="width:26px;height:26px;border-radius:50%;border:1px solid ${S.phase===p?ph.color:'#1e293b'};background:${S.phase===p?ph.color+'22':'none'};color:${S.phase===p?ph.color:'#64748b'};font-size:10px;">${p}</button>`).join("")}</div></div></div>
+    ${S.log.length?`<div class="card" style="padding:12px;"><div class="lbl" style="color:#64748b;margin-bottom:8px;">RECENT ACTIVITY</div>${S.log.slice(0,3).map(e=>`<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #1e293b;"><div><span style="font-size:12px;color:#94a3b8;">${e.account}</span>${e.notes?`<span style="font-size:10px;color:#64748b;margin-left:5px;">· ${e.notes}</span>`:""}</div><div style="text-align:right;"><div class="mono" style="font-size:12px;color:#4ade80;">${fd(e.amount)}</div><div style="font-size:9px;color:#334155;">${e.date}</div></div></div>`).join("")}</div>`:""}`;
+}
+function holdingRow(h,T){
+  const val=h.shares*h.price,pct=T.total>0?(val/T.total)*100:0,diff=h.target-pct;
+  const gP=h.avgCost>0?((h.price-h.avgCost)/h.avgCost)*100:null;
+  const st=statusOf(h,T.total);
+  return `<div style="display:flex;align-items:center;gap:7px;padding:8px 10px;margin-bottom:4px;background:#0d1424;border-radius:8px;border:1px solid ${st.b};"><div style="width:5px;height:5px;border-radius:50%;background:${h.color};flex-shrink:0;"></div><div style="width:44px;"><div class="mono" style="font-size:13px;font-weight:bold;color:#f1f5f9;">${h.ticker}</div><div class="mono" style="font-size:8px;color:#64748b;">${fn(h.shares,2)}sh</div></div><div style="flex:1;"><div style="height:3px;background:#1e293b;border-radius:2px;overflow:hidden;"><div style="width:${Math.min(pct/45*100,100)}%;height:100%;background:${h.color};"></div></div><div style="display:flex;justify-content:space-between;margin-top:2px;"><span style="font-size:8px;color:#64748b;">$${fn(h.price,2)} · ${fn(pct,1)}%</span><span style="font-size:8px;color:${Math.abs(diff)<1?'#4ade80':diff>0?'#c084fc':'#fb923c'};">→${h.target}%</span></div></div><div style="text-align:right;min-width:54px;"><div class="mono" style="font-size:11px;color:#f1f5f9;">${val>0?fd(val):"—"}</div>${gP!==null?`<div class="mono" style="font-size:8px;color:${gP>=0?'#4ade80':'#f87171'};">${fp(gP)}</div>`:""}</div><button onclick="openEdit('${h.id}')" class="mono" style="padding:3px 7px;background:#1e293b;border:none;border-radius:4px;color:#64748b;font-size:9px;flex-shrink:0;">Edit</button></div>`;
+}
+function renderPortfolio(T){
+  document.getElementById("vPortfolio").innerHTML=`
+    <div class="card" style="display:flex;justify-content:space-between;align-items:center;padding:9px 12px;margin-bottom:12px;"><div><div style="font-size:11px;color:#94a3b8;">Prices last updated</div><div style="font-size:10px;color:#334155;">${timeAgo(S.lastPrice)}</div></div><button onclick="refreshPrices()" style="padding:7px 14px;background:#818cf822;border:1px solid #818cf844;border-radius:7px;color:#818cf8;font-size:11px;">⟳ Update Prices</button></div>
+    <div style="height:8px;border-radius:4px;overflow:hidden;display:flex;margin-bottom:14px;">${[...S.broker,...S.roth].filter(h=>h.shares>0).map(h=>{const pct=T.total>0?(h.shares*h.price/T.total)*100:0;return `<div style="width:${pct}%;background:${h.color};border-right:1px solid #080c18;"></div>`;}).join("")}</div>
+    <div class="lbl" style="color:#4ade80;margin-bottom:8px;">BROKERAGE · ${fd(T.bVal)}</div>${S.broker.map(h=>holdingRow(h,T)).join("")}
+    <div class="lbl" style="color:#818cf8;margin:14px 0 8px;">ROTH IRA · ${T.rVal===0?"Not started — June 2026":fd(T.rVal)}</div>${S.roth.map(h=>holdingRow(h,T)).join("")}`;
+}
+function renderDca(){
+  const ph=PHASES[S.phase];
+  const block=(items,base)=>`<div style="height:5px;border-radius:3px;overflow:hidden;display:flex;margin-bottom:10px;">${items.map(i=>`<div style="width:${i[1]}%;background:${i[2]};border-right:1px solid #080c18;"></div>`).join("")}</div>${items.map(i=>`<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #1e293b;"><div style="display:flex;align-items:center;gap:6px;"><div style="width:5px;height:5px;border-radius:50%;background:${i[2]};"></div><span class="mono" style="font-size:13px;color:#f1f5f9;font-weight:bold;">${i[0]}</span></div><span class="mono" style="font-size:11px;color:${i[2]};">${i[1]}% · $${Math.round(base*i[1]/100)}/mo</span></div>`).join("")}`;
+  const now=new Date();
+  document.getElementById("vDca").innerHTML=`
+    <div class="card" style="padding:12px;margin-bottom:10px;border-color:${ph.color}33;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;"><div style="font-size:11px;color:${ph.color};font-weight:600;">${ph.label} · ${ph.sub}</div><div style="display:flex;gap:4px;">${["A","B","C"].map(p=>`<button onclick="setPhase('${p}')" class="mono" style="padding:3px 10px;border-radius:20px;border:1px solid ${S.phase===p?ph.color:'#1e293b'};background:${S.phase===p?ph.color+'22':'none'};color:${S.phase===p?ph.color:'#64748b'};font-size:10px;">${p}</button>`).join("")}</div></div><div style="font-size:10px;color:#64748b;">${ph.note}</div></div>
+    <div class="lbl" style="color:#4ade80;margin-bottom:6px;">BROKERAGE · $475/MO · $237.50 ON 8TH + 23RD</div><div class="card" style="padding:12px;margin-bottom:10px;">${block(ph.broker,475)}</div>
+    <div class="lbl" style="color:#818cf8;margin-bottom:6px;">ROTH IRA · $625/MO · $312.50 ON 8TH + 23RD</div><div class="card" style="padding:12px;margin-bottom:10px;"><div style="padding:6px 8px;background:#150f2a;border-radius:5px;font-size:9px;color:#c084fc;margin-bottom:8px;">⚠ No VEA/VWO/BND in Roth — foreign tax credit lost. US growth only.</div>${block(ph.roth,625)}</div>
+    <div class="lbl" style="color:#64748b;margin-bottom:6px;">2026 SCHEDULE</div><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:5px;margin-bottom:12px;">${MONTHS.map((m,mi)=>`<div class="card" style="padding:7px;border-color:${mi===now.getMonth()?'#818cf8':'#1e293b'};"><div class="mono" style="font-size:8px;color:${mi===now.getMonth()?'#818cf8':'#64748b'};margin-bottom:4px;">${m} '26</div>${[[8,"#60a5fa"],[23,"#818cf8"]].map(([d,c])=>`<div style="display:flex;justify-content:space-between;padding:1px 0;"><span class="mono" style="font-size:8px;color:#64748b;">${d}th</span><span class="mono" style="font-size:8px;color:${c};">$950</span></div>`).join("")}</div>`).join("")}</div>
+    <button onclick="openLog()" style="width:100%;padding:11px;background:#818cf822;border:1px solid #818cf844;border-radius:9px;color:#818cf8;font-size:13px;">+ Log Investment</button>`;
+}
+function renderMarket(){
+  let body="";
+  if(analyzing){
+    body=`<div style="text-align:center;padding:30px;color:#64748b;font-size:12px;"><div style="font-size:20px;margin-bottom:6px;"><span class="spin">📊</span></div>Fetching live VIX & S&P 500 data...</div>`;
+  }else if(S.market&&S.market.error){
+    body=`<div onclick="analyzeMarket()" style="padding:12px;background:#2a0f0f;border:1px solid #4a2020;border-radius:7px;color:#f87171;font-size:11px;text-align:center;">Market data failed: ${S.market.error}. Tap to retry.</div>`;
+  }else if(S.market){
+    const rc=REC[S.market.recommendation]||{bg:"#0f172a",t:"#94a3b8",b:"#1e293b",i:"",act:"",det:""};
+    body=`<div style="padding:16px;background:${rc.bg};border:2px solid ${rc.b};border-radius:12px;margin-bottom:10px;text-align:center;"><div class="lbl" style="color:#64748b;margin-bottom:5px;">RECOMMENDATION</div><div style="font-size:18px;color:${rc.t};font-weight:700;margin-bottom:6px;">${rc.i} ${S.market.recommendation}</div><div style="font-size:11px;color:#94a3b8;line-height:1.6;">${rc.det}</div></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">
+        <div class="card" style="padding:12px;border-color:${VIXC(S.market.vix)}33;"><div class="lbl" style="color:#64748b;">VIX Fear Index</div><div class="mono" style="font-size:28px;color:${VIXC(S.market.vix)};font-weight:300;margin:3px 0;">${S.market.vix}</div><div style="font-size:10px;color:${VIXC(S.market.vix)};">${S.market.vix_label}</div></div>
+        <div class="card" style="padding:12px;border-color:${S.market.sp500_today.startsWith('+')?'#4ade80':'#f87171'}33;"><div class="lbl" style="color:#64748b;">S&P 500 Today</div><div class="mono" style="font-size:28px;color:${S.market.sp500_today.startsWith('+')?'#4ade80':'#f87171'};font-weight:300;margin:3px 0;">${S.market.sp500_today}</div><div style="font-size:10px;color:#64748b;">Trend: ${S.market.trend}</div></div>
+      </div>
+      <div class="card" style="padding:12px;background:#0f1f35;border-color:#1e3a5f;"><div class="lbl" style="color:#60a5fa;margin-bottom:8px;">YOUR DCA GUIDANCE</div><div style="font-size:13px;color:${rc.t};margin-bottom:4px;">${rc.act}</div><div style="font-size:11px;color:#64748b;line-height:1.6;">Based on VIX ${S.market.vix} (${S.market.vix_label}) and S&P 500 ${S.market.sp500_today} today.</div></div>`;
+  }else{
+    body=`<div style="text-align:center;padding:40px 20px;color:#64748b;"><div style="font-size:32px;margin-bottom:10px;">📊</div><div style="font-size:13px;color:#94a3b8;margin-bottom:4px;">Tap "Analyze Market Now" for live data</div><div style="font-size:11px;line-height:1.6;">Pulls the real VIX index and S&P 500 daily move (2 API credits), then recommends your DCA action.</div></div>`;
+  }
+  document.getElementById("vMarket").innerHTML=`
+    <div style="text-align:center;margin-bottom:14px;"><button id="mktBtn" onclick="analyzeMarket()" ${(analyzing||busy)?'disabled':''} style="padding:13px 26px;background:${(analyzing||busy)?'#1e293b':'linear-gradient(135deg,#818cf8,#c084fc)'};border:none;border-radius:11px;color:#fff;font-size:14px;font-weight:600;">${analyzing?'<span class="spin">⟳</span> Analyzing...':'Analyze Market Now'}</button>${S.market&&S.market.date?`<div style="font-size:9px;color:#64748b;margin-top:5px;">Last analyzed: ${S.market.date}</div>`:""}</div>${body}`;
+}
+function renderLog(){
+  const tot=S.log.reduce((s,e)=>s+e.amount,0);
+  document.getElementById("vLog").innerHTML=`
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;"><div class="lbl" style="color:#64748b;">INVESTMENT LOG</div><button onclick="openLog()" style="padding:5px 12px;background:#818cf822;border:1px solid #818cf844;border-radius:5px;color:#818cf8;font-size:10px;">+ Add Entry</button></div>
+    ${S.log.length?`<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px;">${[["Total",fd(tot)],["Entries",S.log.length],["Avg",fd(S.log.length?tot/S.log.length:0)]].map(([l,v])=>`<div class="card" style="padding:9px;text-align:center;"><div class="lbl" style="color:#64748b;">${l}</div><div class="mono" style="font-size:14px;color:#4ade80;margin-top:2px;">${v}</div></div>`).join("")}</div>`:""}
+    ${S.log.length===0?`<div style="text-align:center;padding:40px;color:#64748b;"><div style="font-size:24px;margin-bottom:6px;">📋</div><div style="font-size:12px;">No investments logged yet.</div></div>`:S.log.map(e=>`<div class="card" style="display:flex;justify-content:space-between;align-items:center;padding:9px 11px;margin-bottom:5px;"><div><div style="display:flex;align-items:center;gap:5px;"><span style="font-size:12px;color:#f1f5f9;">${e.account}</span>${e.notes?`<span style="font-size:9px;color:#64748b;">· ${e.notes}</span>`:""}</div><div style="font-size:9px;color:#334155;margin-top:1px;">${e.date}</div></div><div style="display:flex;align-items:center;gap:7px;"><span class="mono" style="font-size:14px;color:#4ade80;">${fd(e.amount)}</span><button onclick="delLog(${e.id})" style="padding:2px 7px;background:#2a0f0f;border:1px solid #4a2020;border-radius:3px;color:#f87171;font-size:9px;">✕</button></div></div>`).join("")}`;
+}
+
+//═══════════════ INIT ═══════════════
+load();
+if(S.apiKey){document.getElementById("app").style.display="block";render();}
+else{document.getElementById("setup").style.display="block";}
+// live credit meter refresh
+setInterval(()=>{ if(document.getElementById("app").style.display!=="none") updateCreditMeter(); },3000);
+</script>
+</body>
+</html>
